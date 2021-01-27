@@ -89,6 +89,12 @@ bool TcpClient::connectserver(const char *ip,unsigned short port,pFun pCallback)
 		close(sock);
 		return false;
 	}
+	if(flag == 0)
+	{
+		//printf("select timeout\n");
+		close(sock);
+		return false;
+	}	
 	else
 	{
 		/*说明*/
@@ -179,7 +185,7 @@ void TcpClient::rcvdata()
 					{
 						if(FD_ISSET(sock,&rest))//judge
 						{
-							memset(rcvbuffer,0,MAX_BUFFER);
+							readagain: memset(rcvbuffer,0,MAX_BUFFER);
 							ssize_t _size=read(sock,rcvbuffer,MAX_BUFFER);
 							uint32 datalen = _size;
 							if(_size>0)
@@ -204,7 +210,7 @@ void TcpClient::rcvdata()
 								pParseData->dataprocess(rcvbuffer,datalen,m_pCallback);
 									
 							}
-							else
+							else if(_size == 0)
 							{
 								//TCP SERVER断开连接
 								printf("domain server disconnected\n");
@@ -215,6 +221,22 @@ void TcpClient::rcvdata()
 								variable_locker.mutex_unlock();
 								//shutdown(sock,SHUT_RDWR);
 								close(sock);
+							}
+							else
+							{
+					            if(errno == EAGAIN)
+					            {
+									printf("errno = %d\n",errno);
+								}
+								else if(errno == EINTR)
+								{
+			                        printf("errno = %d\n",errno);
+			                        goto readagain;						
+								}
+								else 
+								{
+									printf("read error! errno = %d,break.\n",errno);
+								}
 							}
 						}
 					}				
@@ -241,8 +263,8 @@ int TcpClient::senddata(const char* buf,int buflen)
 	}
 	else
 	{
-		int sendlen = 0;
-		sendlen = send(sock,buf,buflen,0);
+		sendagain: int sendlen = 0;
+	    sendlen = send(sock,buf,buflen,0);
 		////printf("domain senddata = %d\n",sendlen);
 		if(sendlen > 0)
         {
@@ -250,10 +272,15 @@ int TcpClient::senddata(const char* buf,int buflen)
         }
         else if(sendlen<0)
 		{
-            if(errno == EINTR || errno == EAGAIN)
+            if(errno == EINTR)
             {
                 printf("send error,errno = %d.\n",errno);
+				goto sendagain;
             }
+			else if(errno == EAGAIN)
+			{
+				//printf("send error,errno = %d.\n",errno);
+			}
             else
             {
                 disconnect();
