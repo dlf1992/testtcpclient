@@ -55,7 +55,7 @@ bool TcpClient::init()
     }
     return true;
 }
-bool TcpClient::connectserver(const char *ip,unsigned short port,pFun pCallback)
+bool TcpClient::connectserver(const char *ip,unsigned short port,pFun pCallback,pReadPacketFun pReadPacket,int maxbufsize)
 {
 	if(!init())
 	{
@@ -63,7 +63,9 @@ bool TcpClient::connectserver(const char *ip,unsigned short port,pFun pCallback)
 	    return false;
 	}
 	m_pCallback = pCallback;
-
+	m_readpacket = pReadPacket;
+	m_maxbuf = maxbufsize;
+		
 	serveraddr.sin_family = AF_INET;
 	serveraddr.sin_port = htons(port);
 	inet_pton(AF_INET, ip, &serveraddr.sin_addr);
@@ -207,7 +209,7 @@ void TcpClient::rcvdata()
 								{
 									pParseData = new ParseData;
 								}
-								pParseData->dataprocess(rcvbuffer,datalen,m_pCallback);
+								pParseData->dataprocess(rcvbuffer,datalen,m_pCallback,m_readpacket,m_maxbuf);
 									
 							}
 							else if(_size == 0)

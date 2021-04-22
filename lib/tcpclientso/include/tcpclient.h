@@ -40,6 +40,8 @@ private:
 	int rcvbuflen;
 	ParseData *pParseData;
 	pFun m_pCallback;
+	pReadPacketFun m_readpacket;
+	int m_maxbuf;
 public:
 	bool connectstatus;
 	//互斥锁
@@ -50,7 +52,7 @@ public:
 	TcpClient();
 	~TcpClient();
 	bool init();
-	bool connectserver(const char *ip,unsigned short port,pFun pCallback);
+	bool connectserver(const char *ip,unsigned short port,pFun pCallback,pReadPacketFun pReadPacket,int maxbufsize);
 	void rcvdata();
 	int senddata(const char* buf,int buflen);
 	void disconnect();

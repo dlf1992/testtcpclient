@@ -1,82 +1,129 @@
 #include "commuclient.h"
-#include "tcpclient.h"
+#include "factory.h"
 
-TcpClient *ptcpclient = NULL;
-static void *work(void *arg);
-pFun callback_func;
-SERVERINFO m_svrinfo;
+map<string,Factory*> fac_map; //
+mutex_locker fac_locker;
 
-int StartTcpClient(const char* ip,unsigned short port,pFun Callback)
+
+Factory *findptr(const char* ip,unsigned short port)
 {
-	callback_func = Callback;
-	////printf("callback_func:%p\n",callback_func);
-	ptcpclient = new TcpClient;
-	if(NULL == ptcpclient)
+	Factory * pfac = NULL;
+	char tmp[32];
+	memset(tmp,0,sizeof(tmp));
+	sprintf(tmp,"%s:%d",ip,port);
+	string svraddr = tmp;
+	//printf("svraddr = %s\n",svraddr.c_str());
+
+	fac_locker.mutex_lock();	
+	map<string,Factory*>::iterator iter;
+	iter = fac_map.find(svraddr);
+	if(iter != fac_map.end())
 	{
-		//printf("ptcpclient=NULL\n");
-		return -1;
+		//printf("svraddr exist\n");
+		pfac = iter->second;
 	}
-	
-	memset(&m_svrinfo,0,sizeof(SERVERINFO));
-	memcpy(&m_svrinfo.ip,ip,strlen(ip));
-	m_svrinfo.port = port;
-	//printf("ip=%s,port=%d\n",ip,port);
-	pthread_t tid;
-	//unsigned short tport = 1122;
-	if(pthread_create(&tid, NULL, work, (void *)(&m_svrinfo)) != 0)
+	else
 	{
-		//printf("thread creat error.\n");
-		return -1;
-	}
-	if(pthread_detach(tid) != 0)
-	{
-		//printf("thread detach error.\n");
-		return -1;
+		printf("not found svraddr\n");				
 	}	
+	fac_locker.mutex_unlock();
+	return pfac;
+}
+void insertptr(const char* ip,unsigned short port,Factory *pfactory)
+{
+	char tmp[32];
+	memset(tmp,0,sizeof(tmp));
+	sprintf(tmp,"%s:%d",ip,port);
+	string svraddr = tmp;
+	//printf("svraddr = %s\n",svraddr.c_str());
+	
+	fac_locker.mutex_lock();
+	fac_map.insert(make_pair(svraddr,pfactory));
+	fac_locker.mutex_unlock();	
+}
+void clearptr(const char* ip,unsigned short port)
+{
+	Factory * pfac = NULL;
+	char tmp[32];
+	memset(tmp,0,sizeof(tmp));
+	sprintf(tmp,"%s:%d",ip,port);
+	string svraddr = tmp;
+	//printf("svraddr = %s\n",svraddr.c_str());
+
+	fac_locker.mutex_lock();
+	map<string,Factory*>::iterator iter;
+	iter = fac_map.find(svraddr);
+	if(iter != fac_map.end())
+	{
+		//printf("svraddr exist\n");
+		pfac = iter->second;
+		//printf("pfac = %p\n",pfac);
+		fac_map.erase(iter);
+		delete pfac;
+		pfac = NULL;
+		//printf("---------------\n");
+	}
+	else
+	{
+		printf("not found svraddr\n");			
+	}	
+	fac_locker.mutex_unlock();	
+}
+int StartTcpClient(const char* ip,unsigned short port,pFun Callback,int recflag,int recinterval,pReadPacketFun ReadPacket,int maxbufsize)
+{
+	Factory *pfactory = NULL;
+	pfactory = 	findptr(ip,port);
+	if(pfactory == NULL)
+	{
+		pfactory = new Factory(ip,port,Callback,recflag,recinterval,ReadPacket,maxbufsize);
+		insertptr(ip,port,pfactory);
+	}
+	if(NULL == pfactory)
+	{
+		return -1;
+	}
 	return 0;
 }
-int SenddatatoSvr(const char* senddata,int datalen)
+int ConnectSvr(const char* ip,unsigned short port)
 {
-	int ret = 0;
-	if(NULL == ptcpclient)
+	Factory *pfactory = NULL;
+	pfactory = 	findptr(ip,port);
+	if(NULL == pfactory)
 	{
-		//printf("ptcpclient=NULL\n");
 		return -1;
-	}	
-	ret = ptcpclient->senddata(senddata,datalen);
+	}
+	pfactory->connect();
+	return 0;
+}
+int SenddatatoSvr(const char* ip,unsigned short port,const char* senddata,int datalen)
+{
+	Factory *pfactory = NULL;
+	pfactory = 	findptr(ip,port);
+	if(NULL == pfactory)
+	{
+		return -1;
+	}
+	int ret = pfactory->senddata(senddata,datalen);	
 	return ret;
 }
-
-void *work(void *arg)
+void DisConnect(const char* ip,unsigned short port)
 {
-	prctl(PR_SET_NAME,"TcpClient");
-	static int connecttimes = 0;
-	if(NULL == ptcpclient)
+	Factory *pfactory = NULL;
+	pfactory = 	findptr(ip,port);
+	if(NULL == pfactory)
 	{
-		return NULL;
+		return;
 	}
-	char m_ip[16] = {0};
-	unsigned short m_port = 0;
-	
-	memcpy(m_ip,&(((SERVERINFO*)arg)->ip),strlen(((SERVERINFO*)arg)->ip));
-	m_port = ((SERVERINFO*)arg)->port;
-	printf("Serverip=%s,Serverport=%d.\n",m_ip,m_port);
-	//unsigned short tport = (unsigned short *)arg;
-	//printf("tport=%d.\n",tport);
-	while(1)
-	{
-		if(ptcpclient->connectserver(m_ip,m_port,callback_func))
-		{
-			//printf("client connect success,connecttimes = %d\n",connecttimes);
-			ptcpclient->rcvdata();
-		}
-		else
-		{
-			//printf("client connect failed,connecttimes = %d\n",connecttimes);
-			sleep(10);
-		}
-		connecttimes++;		
-	}
-	
-	return ptcpclient;
+	pfactory->disconnect();
 }
+void StopTcpclient(const char* ip,unsigned short port)
+{
+	Factory *pfactory = NULL;
+	pfactory = 	findptr(ip,port);
+	if(NULL == pfactory)
+	{
+		return;
+	}
+	clearptr(ip,port);
+}
+

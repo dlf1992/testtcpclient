@@ -23,7 +23,7 @@ ParseData::~ParseData()
 		pTRingBuffer = NULL;
 	}
 }
-void ParseData::dataprocess(char *buffer,int buflen,pFun pCallback)
+void ParseData::dataprocess(char *buffer,int buflen,pFun pCallback,pReadPacketFun readpacket,int maxbuf)
 {
 	char szPacket[2048];
 	int iPacketlen = 0;
@@ -32,7 +32,7 @@ void ParseData::dataprocess(char *buffer,int buflen,pFun pCallback)
 	if(NULL == pTRingBuffer)
 	{
 		pTRingBuffer = new TRingBuffer;
-		pTRingBuffer->Create(4096);
+		pTRingBuffer->Create(maxbuf);
 	}
 	if(buflen>0)
 	{
@@ -43,12 +43,18 @@ void ParseData::dataprocess(char *buffer,int buflen,pFun pCallback)
 	}
 	while(pTRingBuffer->GetMaxReadSize()>0)
 	{
-		iPacketlen = ReadPacket(szPacket, sizeof(szPacket));
+		if(readpacket != NULL)
+		{
+			iPacketlen = readpacket(pTRingBuffer,szPacket, sizeof(szPacket));
+		}		
 		if(iPacketlen> 0)
 		{
 			////printf("Read packet success,iPacketlen = %d\n",iPacketlen);
 			//具体协议处理
-			pCallback(szPacket,iPacketlen);
+			if(pCallback != NULL)
+			{
+				pCallback(szPacket,iPacketlen);
+			}
 			iPacketlen = 0;
 		}
 		else

@@ -12,8 +12,17 @@
 #include "commuclient.h"
 
 using namespace std;
-#define MAX_DATA 1000
-unsigned char send_buf[960];
+#define MAX_DATA 10
+unsigned char send_buf[100];
+
+typedef struct Serverinfoext
+{
+	char ip[16];
+	unsigned short port;
+	int recoflag;//0不需要 1需要
+	int recointerval;//重连间隔 s
+	int maxbufsize;//最大缓冲区大小
+}__attribute__((packed)) SERVERINFOEXT;
 
 static void signal_action(int sig, siginfo_t* info, void* p)
 {
@@ -116,33 +125,121 @@ static int dealpacket(const char* data,int datalen)
 	return 0;
 
 }
+static int ReadPacket(TRingBuffer* pTRingBuffer,char* szPacket, int iPackLen)
+{
+	int iRet = 0;
+
+	int iStartPos = 0;
+	int iStopPos = 0;
+	int packetlen = 0;
+	unsigned char ch1;
+	unsigned char ch2;
+	unsigned char ch3;
+	unsigned char packetlenlow;
+	unsigned char packetlenhigh;
+	
+	if(NULL == pTRingBuffer)
+		return iRet;
+
+	if (!pTRingBuffer->FindChar(0x23, iStartPos)) //find #
+	{
+        //0x23都查找不到 肯定是无效数据 清空
+		//printf("can not find #,clear ringbuffer.\n");
+        pTRingBuffer->Clear();	
+		return iRet;		
+	}
+
+	if(pTRingBuffer->GetMaxReadSize() <= iStartPos+6)
+	{
+		//printf("can not find total protocol.\n");
+		//丢弃#前面的数据
+		pTRingBuffer->ThrowSomeData(iStartPos);
+		return iRet;
+	}
+	
+	if((!pTRingBuffer->PeekChar(iStartPos+1,ch1))\
+		||(!pTRingBuffer->PeekChar(iStartPos+2,ch2))\
+		||(!pTRingBuffer->PeekChar(iStartPos+3,ch3)))
+	{
+		//printf("can not find char.\n");
+		return iRet;
+	}
+	
+	if((ch1==0x23)&&(ch2==0x23)&&(ch3==0x23))
+	{
+		//丢弃#前面的数据
+		pTRingBuffer->ThrowSomeData(iStartPos);
+		iStartPos = 0;
+		//数据包长度
+		pTRingBuffer->PeekChar(iStartPos+4,packetlenlow);
+		pTRingBuffer->PeekChar(iStartPos+5,packetlenhigh);
+		packetlen = MAKESHORT(packetlenlow,packetlenhigh);
+		if(packetlen > 2048)
+		{
+			//处理异常数据
+			pTRingBuffer->Clear();	
+			return iRet;
+		}		
+		iStopPos = iStartPos+packetlen;
+		if (iStopPos <= pTRingBuffer->GetMaxReadSize())
+		{
+			if (iStopPos > iPackLen) pTRingBuffer->ThrowSomeData(iStopPos); //数据超长，丢弃
+			else if (pTRingBuffer->ReadBinary((uint8*)szPacket, iStopPos))
+			{
+				iRet = packetlen;
+				//m_readBuffer.Clear();
+			}
+		}
+	}
+	else
+	{
+		//长度够，但是不完全符合格式，清空
+		//printf("imcomplete with data format,clear all.\n");
+		pTRingBuffer->Clear();	
+		return iRet;	
+	}
+	return iRet;		
+}
+
 static void *worker(void *arg)
 {
 	prctl(PR_SET_NAME,"TcpClient");
 	char m_ip[16] = {0};
 	unsigned short m_port = 0;
+	int m_recoflag = 0;
+	int m_recointerval = 0;
+	int m_maxbufsize = 0;
 	
-	memcpy(&m_ip,&(((SERVERINFO*)arg)->ip),strlen(((SERVERINFO*)arg)->ip));
-	m_port = ((SERVERINFO*)arg)->port;
+	//printf("start worker\n");
+	memcpy(&m_ip,&(((SERVERINFOEXT*)arg)->ip),strlen(((SERVERINFOEXT*)arg)->ip));
+	m_port = ((SERVERINFOEXT*)arg)->port;
+	m_recoflag = ((SERVERINFOEXT*)arg)->recoflag;
+	m_recointerval = ((SERVERINFOEXT*)arg)->recointerval;
+	m_maxbufsize = ((SERVERINFOEXT*)arg)->maxbufsize;
 	//printf("Serverip=%s,Serverport=%d.\n",m_ip,m_port);	
-	StartTcpClient(m_ip,m_port,dealpacket);
+	ConnectSvr(m_ip,m_port);
 	//printf("TcpClient thread exit.\n");
 	return NULL;
 }
 int main(int argc,char *argv[])
 {	
-	if(argc != 3)
+	if(argc != 6)
 	{
-		printf("please input param ip port.\n");
+		printf("please input param ip port recoflag recointerval.\n");
 	}
-	printf("ip:%s,port:%d\n",argv[1],atoi(argv[2]));
+	printf("ip:%s,port:%d,recoflag:%d,recointerval:%d\n",argv[1],atoi(argv[2]),atoi(argv[3]),atoi(argv[4]));
 	//信号初始化
 	//signal_Init();
 	
-	SERVERINFO m_svrinfo;
-	memset(&m_svrinfo,0,sizeof(SERVERINFO));
+	SERVERINFOEXT m_svrinfo;
+	memset(&m_svrinfo,0,sizeof(SERVERINFOEXT));
 	memcpy(&m_svrinfo.ip,argv[1],strlen(argv[1]));
 	m_svrinfo.port = atoi(argv[2]);	
+	m_svrinfo.recoflag = atoi(argv[3]);
+	m_svrinfo.recointerval = atoi(argv[4]);
+	m_svrinfo.maxbufsize = atoi(argv[5]);
+	
+	StartTcpClient(m_svrinfo.ip,m_svrinfo.port,dealpacket,m_svrinfo.recoflag,m_svrinfo.recointerval,ReadPacket,m_svrinfo.maxbufsize);
 	pthread_t tid;
 	if(pthread_create(&tid, NULL, worker,(void *)(&m_svrinfo)) != 0)
 	{
@@ -166,13 +263,14 @@ int main(int argc,char *argv[])
 			num = i;
 			send_buf[6] = (unsigned char)num&0xff;
 			send_buf[7] = (unsigned char)((num>>8)&0xff);
-			int ret = SenddatatoSvr((char*)send_buf,sizeof(send_buf));
+			int ret = SenddatatoSvr(m_svrinfo.ip,m_svrinfo.port,(char*)send_buf,sizeof(send_buf));
 			printf("senddata ret = %d,packet %d\n",ret,i);
-			usleep(100*1000);
+			sleep(1);
 		}
-		
+		DisConnect(m_svrinfo.ip,m_svrinfo.port);
+		StopTcpclient(m_svrinfo.ip,m_svrinfo.port);
 		sleep(10);
-		//break;
+		break;
 	}	
 	return 0;
 }

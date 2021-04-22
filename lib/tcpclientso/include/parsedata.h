@@ -14,6 +14,7 @@
 #include "RingBuffer.h"
 
 typedef  int (*pFun)(const char *,int);
+typedef  int (*pReadPacketFun)(TRingBuffer*,char*,int); 
 
 class ParseData
 {
@@ -23,7 +24,7 @@ private:
 public:
 	ParseData();
 	~ParseData();
-	void dataprocess(char *buffer,int buflen,pFun pCallback);
+	void dataprocess(char *buffer,int buflen,pFun pCallback,pReadPacketFun readpacket,int maxbuf);
 	int ReadPacket(char* szPacket, int iPackLen);
 };
 #endif
