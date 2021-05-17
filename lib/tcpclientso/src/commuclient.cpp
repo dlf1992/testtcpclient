@@ -76,12 +76,12 @@ int StartTcpClient(const char* ip,unsigned short port,pFun Callback,int recflag,
 	if(pfactory == NULL)
 	{
 		pfactory = new Factory(ip,port,Callback,recflag,recinterval,ReadPacket,maxbufsize);
-		insertptr(ip,port,pfactory);
 	}
 	if(NULL == pfactory)
 	{
 		return -1;
 	}
+	insertptr(ip,port,pfactory);
 	return 0;
 }
 int ConnectSvr(const char* ip,unsigned short port)
