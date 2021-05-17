@@ -1,7 +1,7 @@
 #include "commuclient.h"
 #include "factory.h"
 
-map<string,Factory*> fac_map; //
+map<string,Factory*> fac_map; //192.168.8.100:8080
 mutex_locker fac_locker;
 
 
