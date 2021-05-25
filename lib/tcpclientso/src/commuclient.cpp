@@ -59,8 +59,11 @@ void clearptr(const char* ip,unsigned short port)
 		pfac = iter->second;
 		//printf("pfac = %p\n",pfac);
 		fac_map.erase(iter);
-		delete pfac;
-		pfac = NULL;
+		if(pfac != NULL)
+		{
+			delete pfac;
+			pfac = NULL;
+		}
 		//printf("---------------\n");
 	}
 	else
@@ -125,5 +128,6 @@ void StopTcpclient(const char* ip,unsigned short port)
 		return;
 	}
 	clearptr(ip,port);
+	pfactory = NULL;
 }
 
