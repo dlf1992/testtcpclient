@@ -12,8 +12,8 @@
 #include "commuclient.h"
 
 using namespace std;
-#define MAX_DATA 10
-unsigned char send_buf[100];
+#define MAX_DATA 1000
+unsigned char send_buf[10];
 
 typedef struct Serverinfoext
 {
@@ -229,7 +229,7 @@ int main(int argc,char *argv[])
 	}
 	printf("ip:%s,port:%d,recoflag:%d,recointerval:%d\n",argv[1],atoi(argv[2]),atoi(argv[3]),atoi(argv[4]));
 	//信号初始化
-	//signal_Init();
+	signal_Init();
 	
 	SERVERINFOEXT m_svrinfo;
 	memset(&m_svrinfo,0,sizeof(SERVERINFOEXT));
